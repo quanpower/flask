@@ -37,7 +37,7 @@ us a :class:`~flask.ctx.RequestContext`:
 
 >>> ctx = app.test_request_context('/?next=http://example.com/')
 
-This context can be used in two ways.  Either with the `with` statement
+This context can be used in two ways.  Either with the ``with`` statement
 or by calling the :meth:`~flask.ctx.RequestContext.push` and
 :meth:`~flask.ctx.RequestContext.pop` methods:
 
@@ -69,14 +69,14 @@ find a piece of code that looks very much like this::
         with self.request_context(environ):
             try:
                 response = self.full_dispatch_request()
-            except Exception, e:
+            except Exception as e:
                 response = self.make_response(self.handle_exception(e))
             return response(environ, start_response)
 
 The method :meth:`~Flask.request_context` returns a new
 :class:`~flask.ctx.RequestContext` object and uses it in combination with
-the `with` statement to bind the context.  Everything that is called from
-the same thread from this point onwards until the end of the `with`
+the ``with`` statement to bind the context.  Everything that is called from
+the same thread from this point onwards until the end of the ``with``
 statement will have access to the request globals (:data:`flask.request`
 and others).
 
@@ -119,9 +119,9 @@ understand what is actually happening.  The new behavior is quite simple:
     not executed yet or at all (for example in test environments sometimes
     you might want to not execute before-request callbacks).
 
-Now what happens on errors?  In production mode if an exception is not
-caught, the 500 internal server handler is called.  In development mode
-however the exception is not further processed and bubbles up to the WSGI
+Now what happens on errors?  If you are not in debug mode and an exception is not    
+caught, the 500 internal server handler is called.  In debug mode   
+however the exception is not further processed and bubbles up to the WSGI 
 server.  That way things like the interactive debugger can provide helpful
 debug information.
 
@@ -137,7 +137,7 @@ Teardown Callbacks
 ------------------
 
 The teardown callbacks are special callbacks in that they are executed at
-at different point.  Strictly speaking they are independent of the actual
+a different point.  Strictly speaking they are independent of the actual
 request handling as they are bound to the lifecycle of the
 :class:`~flask.ctx.RequestContext` object.  When the request context is
 popped, the :meth:`~flask.Flask.teardown_request` functions are called.
@@ -214,10 +214,11 @@ provide you with important information.
 Starting with Flask 0.7 you have finer control over that behavior by
 setting the ``PRESERVE_CONTEXT_ON_EXCEPTION`` configuration variable.  By
 default it's linked to the setting of ``DEBUG``.  If the application is in
-debug mode the context is preserved, in production mode it's not.
+debug mode the context is preserved. If debug mode is set to off, the context
+is not preserved.
 
-Do not force activate ``PRESERVE_CONTEXT_ON_EXCEPTION`` in production mode
-as it will cause your application to leak memory on exceptions.  However
+Do not force activate ``PRESERVE_CONTEXT_ON_EXCEPTION`` if debug mode is set to off
+as it will cause your application to leak memory on exceptions. However,
 it can be useful during development to get the same error preserving
-behavior as in development mode when attempting to debug an error that
+behavior as debug  mode when attempting to debug an error that
 only occurs under production settings.

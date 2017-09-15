@@ -1,24 +1,24 @@
 .. _application-errors:
 
-Logging Application Errors
-==========================
+Application Errors
+==================
 
 .. versionadded:: 0.3
 
 Applications fail, servers fail.  Sooner or later you will see an exception
 in production.  Even if your code is 100% correct, you will still see
 exceptions from time to time.  Why?  Because everything else involved will
-fail.  Here some situations where perfectly fine code can lead to server
+fail.  Here are some situations where perfectly fine code can lead to server
 errors:
 
 -   the client terminated the request early and the application was still
-    reading from the incoming data.
--   the database server was overloaded and could not handle the query.
+    reading from the incoming data
+-   the database server was overloaded and could not handle the query
 -   a filesystem is full
 -   a harddrive crashed
 -   a backend server overloaded
 -   a programming error in a library you are using
--   network connection of the server to another system failed.
+-   network connection of the server to another system failed
 
 And that's just a small sample of issues you could be facing.  So how do we
 deal with that sort of problem?  By default if your application runs in
@@ -28,213 +28,126 @@ exception to the :attr:`~flask.Flask.logger`.
 But there is more you can do, and we will cover some better setups to deal
 with errors.
 
-Error Mails
------------
+Error Logging Tools
+-------------------
 
-If the application runs in production mode (which it will do on your
-server) you won't see any log messages by default.  Why is that?  Flask
-tries to be a zero-configuration framework.  Where should it drop the logs
-for you if there is no configuration?  Guessing is not a good idea because
-chances are, the place it guessed is not the place where the user has
-permission to create a logfile.  Also, for most small applications nobody
-will look at the logs anyways.
+Sending error mails, even if just for critical ones, can become
+overwhelming if enough users are hitting the error and log files are
+typically never looked at. This is why we recommend using `Sentry
+<https://www.getsentry.com/>`_ for dealing with application errors.  It's
+available as an Open Source project `on GitHub
+<https://github.com/getsentry/sentry>`__ and is also available as a `hosted version
+<https://getsentry.com/signup/>`_ which you can try for free. Sentry
+aggregates duplicate errors, captures the full stack trace and local
+variables for debugging, and sends you mails based on new errors or
+frequency thresholds.
 
-In fact, I promise you right now that if you configure a logfile for the
-application errors you will never look at it except for debugging an issue
-when a user reported it for you.  What you want instead is a mail the
-second the exception happened.  Then you get an alert and you can do
-something about it.
+To use Sentry you need to install the `raven` client::
 
-Flask uses the Python builtin logging system, and it can actually send
-you mails for errors which is probably what you want.  Here is how you can
-configure the Flask logger to send you mails for exceptions::
+    $ pip install raven
 
-    ADMINS = ['yourname@example.com']
-    if not app.debug:
-        import logging
-        from logging.handlers import SMTPHandler
-        mail_handler = SMTPHandler('127.0.0.1',
-                                   'server-error@example.com',
-                                   ADMINS, 'YourApplication Failed')
-        mail_handler.setLevel(logging.ERROR)
-        app.logger.addHandler(mail_handler)
+And then add this to your Flask app::
 
-So what just happened?  We created a new
-:class:`~logging.handlers.SMTPHandler` that will send mails with the mail
-server listening on ``127.0.0.1`` to all the `ADMINS` from the address
-*server-error@example.com* with the subject "YourApplication Failed".  If
-your mail server requires credentials, these can also be provided.  For
-that check out the documentation for the
-:class:`~logging.handlers.SMTPHandler`.
+    from raven.contrib.flask import Sentry
+    sentry = Sentry(app, dsn='YOUR_DSN_HERE')
 
-We also tell the handler to only send errors and more critical messages.
-Because we certainly don't want to get a mail for warnings or other
-useless logs that might happen during request handling.
+Or if you are using factories you can also init it later::
 
-Before you run that in production, please also look at :ref:`logformat` to
-put more information into that error mail.  That will save you from a lot
-of frustration.
+    from raven.contrib.flask import Sentry
+    sentry = Sentry(dsn='YOUR_DSN_HERE')
 
+    def create_app():
+        app = Flask(__name__)
+        sentry.init_app(app)
+        ...
+        return app
 
-Logging to a File
------------------
+The `YOUR_DSN_HERE` value needs to be replaced with the DSN value you get
+from your Sentry installation.
 
-Even if you get mails, you probably also want to log warnings.  It's a
-good idea to keep as much information around that might be required to
-debug a problem.  Please note that Flask itself will not issue any
-warnings in the core system, so it's your responsibility to warn in the
-code if something seems odd.
+Afterwards failures are automatically reported to Sentry and from there
+you can receive error notifications.
 
-There are a couple of handlers provided by the logging system out of the
-box but not all of them are useful for basic error logging.  The most
-interesting are probably the following:
+.. _error-handlers:
 
--   :class:`~logging.FileHandler` - logs messages to a file on the
-    filesystem.
--   :class:`~logging.handlers.RotatingFileHandler` - logs messages to a file
-    on the filesystem and will rotate after a certain number of messages.
--   :class:`~logging.handlers.NTEventLogHandler` - will log to the system
-    event log of a Windows system.  If you are deploying on a Windows box,
-    this is what you want to use.
--   :class:`~logging.handlers.SysLogHandler` - sends logs to a UNIX
-    syslog.
+Error handlers
+--------------
 
-Once you picked your log handler, do like you did with the SMTP handler
-above, just make sure to use a lower setting (I would recommend
-`WARNING`)::
+You might want to show custom error pages to the user when an error occurs.
+This can be done by registering error handlers.
 
-    if not app.debug:
-        import logging
-        from themodule import TheHandlerYouWant
-        file_handler = TheHandlerYouWant(...)
-        file_handler.setLevel(logging.WARNING)
-        app.logger.addHandler(file_handler)
+An error handler is a normal view function that return a response, but instead
+of being registered for a route, it is registered for an exception or HTTP
+status code that would is raised while trying to handle a request.
 
-.. _logformat:
+Registering
+```````````
 
-Controlling the Log Format
---------------------------
+Register handlers by decorating a function with
+:meth:`~flask.Flask.errorhandler`. Or use
+:meth:`~flask.Flask.register_error_handler` to register the function later.
+Remember to set the error code when returning the response. ::
 
-By default a handler will only write the message string into a file or
-send you that message as mail.  A log record stores more information,
-and it makes a lot of sense to configure your logger to also contain that
-information so that you have a better idea of why that error happened, and
-more importantly, where it did.
+    @app.errorhandler(werkzeug.exceptions.BadRequest)
+    def handle_bad_request(e):
+        return 'bad request!', 400
 
-A formatter can be instantiated with a format string.  Note that
-tracebacks are appended to the log entry automatically.  You don't have to
-do that in the log formatter format string.
+    # or, without the decorator
+    app.register_error_handler(400, handle_bad_request)
 
-Here some example setups:
+:exc:`werkzeug.exceptions.HTTPException` subclasses like
+:exc:`~werkzeug.exceptions.BadRequest` and their HTTP codes are interchangeable
+when registering handlers. (``BadRequest.code == 400``)
 
-Email
-`````
+Non-standard HTTP codes cannot be registered by code because they are not known
+by Werkzeug. Instead, define a subclass of
+:class:`~werkzeug.exceptions.HTTPException` with the appropriate code and
+register and raise that exception class. ::
 
-::
+    class InsufficientStorage(werkzeug.exceptions.HTTPException):
+        code = 507
+        description = 'Not enough storage space.'
 
-    from logging import Formatter
-    mail_handler.setFormatter(Formatter('''
-    Message type:       %(levelname)s
-    Location:           %(pathname)s:%(lineno)d
-    Module:             %(module)s
-    Function:           %(funcName)s
-    Time:               %(asctime)s
+    app.register_error_handler(InsuffcientStorage, handle_507)
 
-    Message:
+    raise InsufficientStorage()
 
-    %(message)s
-    '''))
+Handlers can be registered for any exception class, not just
+:exc:`~werkzeug.exceptions.HTTPException` subclasses or HTTP status
+codes. Handlers can be registered for a specific class, or for all subclasses
+of a parent class.
 
-File logging
-````````````
+Handling
+````````
 
-::
+When an exception is caught by Flask while handling a request, it is first
+looked up by code. If no handler is registered for the code, it is looked up
+by its class hierarchy; the most specific handler is chosen. If no handler is
+registered, :class:`~werkzeug.exceptions.HTTPException` subclasses show a
+generic message about their code, while other exceptions are converted to a
+generic 500 Internal Server Error.
 
-    from logging import Formatter
-    file_handler.setFormatter(Formatter(
-        '%(asctime)s %(levelname)s: %(message)s '
-        '[in %(pathname)s:%(lineno)d]'
-    ))
+For example, if an instance of :exc:`ConnectionRefusedError` is raised, and a handler
+is registered for :exc:`ConnectionError` and :exc:`ConnectionRefusedError`,
+the more specific :exc:`ConnectionRefusedError` handler is called with the
+exception instance to generate the response.
 
+Handlers registered on the blueprint take precedence over those registered
+globally on the application, assuming a blueprint is handling the request that
+raises the exception. However, the blueprint cannot handle 404 routing errors
+because the 404 occurs at the routing level before the blueprint can be
+determined.
 
-Complex Log Formatting
-``````````````````````
+.. versionchanged:: 0.11
 
-Here is a list of useful formatting variables for the format string.  Note
-that this list is not complete, consult the official documentation of the
-:mod:`logging` package for a full list.
+   Handlers are prioritized by specificity of the exception classes they are
+   registered for instead of the order they are registered in.
 
-.. tabularcolumns:: |p{3cm}|p{12cm}|
+Logging
+-------
 
-+------------------+----------------------------------------------------+
-| Format           | Description                                        |
-+==================+====================================================+
-| ``%(levelname)s``| Text logging level for the message                 |
-|                  | (``'DEBUG'``, ``'INFO'``, ``'WARNING'``,           |
-|                  | ``'ERROR'``, ``'CRITICAL'``).                      |
-+------------------+----------------------------------------------------+
-| ``%(pathname)s`` | Full pathname of the source file where the         |
-|                  | logging call was issued (if available).            |
-+------------------+----------------------------------------------------+
-| ``%(filename)s`` | Filename portion of pathname.                      |
-+------------------+----------------------------------------------------+
-| ``%(module)s``   | Module (name portion of filename).                 |
-+------------------+----------------------------------------------------+
-| ``%(funcName)s`` | Name of function containing the logging call.      |
-+------------------+----------------------------------------------------+
-| ``%(lineno)d``   | Source line number where the logging call was      |
-|                  | issued (if available).                             |
-+------------------+----------------------------------------------------+
-| ``%(asctime)s``  | Human-readable time when the LogRecord` was        |
-|                  | created.  By default this is of the form           |
-|                  | ``"2003-07-08 16:49:45,896"`` (the numbers after   |
-|                  | the comma are millisecond portion of the time).    |
-|                  | This can be changed by subclassing the formatter   |
-|                  | and overriding the                                 |
-|                  | :meth:`~logging.Formatter.formatTime` method.      |
-+------------------+----------------------------------------------------+
-| ``%(message)s``  | The logged message, computed as ``msg % args``     |
-+------------------+----------------------------------------------------+
-
-If you want to further customize the formatting, you can subclass the
-formatter.  The formatter has three interesting methods:
-
-:meth:`~logging.Formatter.format`:
-    handles the actual formatting.  It is passed a
-    :class:`~logging.LogRecord` object and has to return the formatted
-    string.
-:meth:`~logging.Formatter.formatTime`:
-    called for `asctime` formatting.  If you want a different time format
-    you can override this method.
-:meth:`~logging.Formatter.formatException`
-    called for exception formatting.  It is passed an :attr:`~sys.exc_info`
-    tuple and has to return a string.  The default is usually fine, you
-    don't have to override it.
-
-For more information, head over to the official documentation.
-
-
-Other Libraries
----------------
-
-So far we only configured the logger your application created itself.
-Other libraries might log themselves as well.  For example, SQLAlchemy uses
-logging heavily in its core.  While there is a method to configure all
-loggers at once in the :mod:`logging` package, I would not recommend using
-it.  There might be a situation in which you want to have multiple
-separate applications running side by side in the same Python interpreter
-and then it becomes impossible to have different logging setups for those.
-
-Instead, I would recommend figuring out which loggers you are interested
-in, getting the loggers with the :func:`~logging.getLogger` function and
-iterating over them to attach handlers::
-
-    from logging import getLogger
-    loggers = [app.logger, getLogger('sqlalchemy'),
-               getLogger('otherlibrary')]
-    for logger in loggers:
-        logger.addHandler(mail_handler)
-        logger.addHandler(file_handler)
+See :ref:`logging` for information on how to log exceptions, such as by
+emailing them to admins.
 
 
 Debugging Application Errors
@@ -269,7 +182,7 @@ of the box (see :ref:`debug-mode`).  If you would like to use another Python
 debugger, note that debuggers interfere with each other.  You have to set some
 options in order to use your favorite debugger:
 
-* ``debug``        - whether to enable debug mode and catch exceptinos
+* ``debug``        - whether to enable debug mode and catch exceptions
 * ``use_debugger`` - whether to use the internal Flask debugger
 * ``use_reloader`` - whether to reload and fork the process on exception
 

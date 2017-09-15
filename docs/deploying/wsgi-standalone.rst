@@ -25,35 +25,29 @@ For example, to run a Flask application with 4 worker processes (``-w
 
 .. _Gunicorn: http://gunicorn.org/
 .. _eventlet: http://eventlet.net/
-.. _greenlet: http://codespeak.net/py/0.9.2/greenlet.html
+.. _greenlet: https://greenlet.readthedocs.io/en/latest/
 
-Tornado
+uWSGI
 --------
 
-`Tornado`_ is an open source version of the scalable, non-blocking web
-server and tools that power `FriendFeed`_.  Because it is non-blocking and
-uses epoll, it can handle thousands of simultaneous standing connections,
-which means it is ideal for real-time web services.  Integrating this
-service with Flask is straightforward::
+`uWSGI`_ is a fast application server written in C. It is very configurable
+which makes it more complicated to setup than gunicorn.
 
-    from tornado.wsgi import WSGIContainer
-    from tornado.httpserver import HTTPServer
-    from tornado.ioloop import IOLoop
-    from yourapplication import app
+Running `uWSGI HTTP Router`_::
 
-    http_server = HTTPServer(WSGIContainer(app))
-    http_server.listen(5000)
-    IOLoop.instance().start()
+    uwsgi --http 127.0.0.1:5000 --module myproject:app
 
+For a more optimized setup, see `configuring uWSGI and NGINX`_.
 
-.. _Tornado: http://www.tornadoweb.org/
-.. _FriendFeed: http://friendfeed.com/
+.. _uWSGI: http://uwsgi-docs.readthedocs.io/en/latest/
+.. _uWSGI HTTP Router: http://uwsgi-docs.readthedocs.io/en/latest/HTTP.html#the-uwsgi-http-https-router
+.. _configuring uWSGI and NGINX: uwsgi.html#starting-your-app-with-uwsgi
 
 Gevent
 -------
 
 `Gevent`_ is a coroutine-based Python networking library that uses
-`greenlet`_ to provide a high-level synchronous API on top of `libevent`_
+`greenlet`_ to provide a high-level synchronous API on top of `libev`_
 event loop::
 
     from gevent.wsgi import WSGIServer
@@ -63,8 +57,8 @@ event loop::
     http_server.serve_forever()
 
 .. _Gevent: http://www.gevent.org/
-.. _greenlet: http://codespeak.net/py/0.9.2/greenlet.html
-.. _libevent: http://monkey.org/~provos/libevent/
+.. _greenlet: https://greenlet.readthedocs.io/en/latest/
+.. _libev: http://software.schmorp.de/pkg/libev.html
 
 Twisted Web
 -----------
@@ -96,8 +90,8 @@ Proxy Setups
 
 If you deploy your application using one of these servers behind an HTTP proxy
 you will need to rewrite a few headers in order for the application to work.
-The two problematic values in the WSGI environment usually are `REMOTE_ADDR`
-and `HTTP_HOST`.  You can configure your httpd to pass these headers, or you
+The two problematic values in the WSGI environment usually are ``REMOTE_ADDR``
+and ``HTTP_HOST``.  You can configure your httpd to pass these headers, or you
 can fix them in middleware.  Werkzeug ships a fixer that will solve some common
 setups, but you might want to write your own WSGI middleware for specific
 setups.
@@ -119,15 +113,16 @@ localhost at port 8000, setting appropriate headers:
             proxy_pass         http://127.0.0.1:8000/;
             proxy_redirect     off;
 
-            proxy_set_header   Host             $host;
-            proxy_set_header   X-Real-IP        $remote_addr;
-            proxy_set_header   X-Forwarded-For  $proxy_add_x_forwarded_for;
+            proxy_set_header   Host                 $host;
+            proxy_set_header   X-Real-IP            $remote_addr;
+            proxy_set_header   X-Forwarded-For      $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto    $scheme;
         }
     }
 
 If your httpd is not providing these headers, the most common setup invokes the
-host being set from `X-Forwarded-Host` and the remote address from
-`X-Forwarded-For`::
+host being set from ``X-Forwarded-Host`` and the remote address from
+``X-Forwarded-For``::
 
     from werkzeug.contrib.fixers import ProxyFix
     app.wsgi_app = ProxyFix(app.wsgi_app)

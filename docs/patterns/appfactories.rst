@@ -6,8 +6,8 @@ Application Factories
 If you are already using packages and blueprints for your application
 (:ref:`blueprints`) there are a couple of really nice ways to further improve
 the experience.  A common pattern is creating the application object when
-the blueprint is imported.  But if you move the creation of this object,
-into a function, you can then create multiple instances of this and later.
+the blueprint is imported.  But if you move the creation of this object
+into a function, you can then create multiple instances of this app later.
 
 So why would you want to do this?
 
@@ -54,30 +54,53 @@ get access to the application with the config?  Use
 
 Here we look up the name of a template in the config.
 
-Extension objects are not initially bound to an application. Using
-``db.init_app``, the app gets configured for the extension. No
-application-specific state is stored on the extension object, so one extension
-object can be used for multiple apps. For more information about the design of
-extensions refer to :doc:`/extensiondev`.
+Factories & Extensions
+----------------------
 
-Your `model.py` might look like this when using `Flask-SQLAlchemy
-<http://pythonhosted.org/Flask-SQLAlchemy/>`_::
+It's preferable to create your extensions and app factories so that the
+extension object does not initially get bound to the application.
 
-    from flask.ext.sqlalchemy import SQLAlchemy
-    # no app object passed! Instead we use use db.init_app in the factory.
+Using `Flask-SQLAlchemy <http://flask-sqlalchemy.pocoo.org/>`_,
+as an example, you should not do something along those lines::
+
+    def create_app(config_filename):
+        app = Flask(__name__)
+        app.config.from_pyfile(config_filename)
+
+        db = SQLAlchemy(app)
+
+But, rather, in model.py (or equivalent)::
+
     db = SQLAlchemy()
 
-    # create some models
+and in your application.py (or equivalent)::
+
+    def create_app(config_filename):
+        app = Flask(__name__)
+        app.config.from_pyfile(config_filename)
+
+        from yourapplication.model import db
+        db.init_app(app)
+
+Using this design pattern, no application-specific state is stored on the
+extension object, so one extension object can be used for multiple apps.
+For more information about the design of extensions refer to :doc:`/extensiondev`.
 
 Using Applications
 ------------------
 
 So to use such an application you then have to create the application
-first.  Here an example `run.py` file that runs such an application::
+first in a separate file otherwise the :command:`flask` command won't be able
+to find it.  Here an example :file:`exampleapp.py` file that creates such
+an application::
 
     from yourapplication import create_app
     app = create_app('/path/to/config.cfg')
-    app.run()
+
+It can then be used with the :command:`flask` command::
+
+    export FLASK_APP=exampleapp
+    flask run
 
 Factory Improvements
 --------------------

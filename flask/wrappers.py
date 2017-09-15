@@ -5,20 +5,105 @@
 
     Implements the WSGI wrappers (request and response).
 
-    :copyright: (c) 2011 by Armin Ronacher.
+    :copyright: (c) 2015 by Armin Ronacher.
     :license: BSD, see LICENSE for more details.
 """
-
+from werkzeug.exceptions import BadRequest
 from werkzeug.wrappers import Request as RequestBase, Response as ResponseBase
-from werkzeug.utils import cached_property
 
-from .exceptions import JSONBadRequest
-from .debughelpers import attach_enctype_error_multidict
-from . import json
-from .globals import _request_ctx_stack
+from flask import json
+from flask.globals import current_app
 
 
-class Request(RequestBase):
+class JSONMixin(object):
+    """Common mixin for both request and response objects to provide JSON
+    parsing capabilities.
+
+    .. versionadded:: 1.0
+    """
+
+    _cached_json = Ellipsis
+
+    @property
+    def is_json(self):
+        """Check if the mimetype indicates JSON data, either
+        :mimetype:`application/json` or :mimetype:`application/*+json`.
+
+        .. versionadded:: 0.11
+        """
+        mt = self.mimetype
+        return (
+            mt == 'application/json'
+            or (mt.startswith('application/')) and mt.endswith('+json')
+        )
+
+    @property
+    def json(self):
+        """This will contain the parsed JSON data if the mimetype indicates
+        JSON (:mimetype:`application/json`, see :meth:`is_json`), otherwise it
+        will be ``None``.
+        """
+        return self.get_json()
+
+    def _get_data_for_json(self, cache):
+        return self.get_data(cache=cache)
+
+    def get_json(self, force=False, silent=False, cache=True):
+        """Parse and return the data as JSON. If the mimetype does not indicate
+        JSON (:mimetype:`application/json`, see :meth:`is_json`), this returns
+        ``None`` unless ``force`` is true. If parsing fails,
+        :meth:`on_json_loading_failed` is called and its return value is used
+        as the return value.
+
+        :param force: Ignore the mimetype and always try to parse JSON.
+        :param silent: Silence parsing errors and return ``None`` instead.
+        :param cache: Store the parsed JSON to return for subsequent calls.
+        """
+        if cache and self._cached_json is not Ellipsis:
+            return self._cached_json
+
+        if not (force or self.is_json):
+            return None
+
+        # We accept MIME charset against the specification as certain clients
+        # have used this in the past. For responses, we assume that if the
+        # charset is set then the data has been encoded correctly as well.
+        charset = self.mimetype_params.get('charset')
+
+        try:
+            data = self._get_data_for_json(cache=cache)
+            rv = json.loads(data, encoding=charset)
+        except ValueError as e:
+            if silent:
+                rv = None
+            else:
+                rv = self.on_json_loading_failed(e)
+
+        if cache:
+            self._cached_json = rv
+
+        return rv
+
+    def on_json_loading_failed(self, e):
+        """Called if :meth:`get_json` parsing fails and isn't silenced. If
+        this method returns a value, it is used as the return value for
+        :meth:`get_json`. The default implementation raises a
+        :class:`BadRequest` exception.
+
+        .. versionchanged:: 0.10
+           Raise a :exc:`BadRequest` error instead of returning an error
+           message as JSON. If you want that behavior you can add it by
+           subclassing.
+
+        .. versionadded:: 0.8
+        """
+        if current_app is not None and current_app.debug:
+            raise BadRequest('Failed to decode JSON object: {0}'.format(e))
+
+        raise BadRequest()
+
+
+class Request(RequestBase, JSONMixin):
     """The request object used by default in Flask.  Remembers the
     matched endpoint and view arguments.
 
@@ -31,56 +116,38 @@ class Request(RequestBase):
     specific ones.
     """
 
-    #: the internal URL rule that matched the request.  This can be
+    #: The internal URL rule that matched the request.  This can be
     #: useful to inspect which methods are allowed for the URL from
     #: a before/after handler (``request.url_rule.methods``) etc.
     #:
     #: .. versionadded:: 0.6
     url_rule = None
 
-    #: a dict of view arguments that matched the request.  If an exception
-    #: happened when matching, this will be `None`.
+    #: A dict of view arguments that matched the request.  If an exception
+    #: happened when matching, this will be ``None``.
     view_args = None
 
-    #: if matching the URL failed, this is the exception that will be
+    #: If matching the URL failed, this is the exception that will be
     #: raised / was raised as part of the request handling.  This is
     #: usually a :exc:`~werkzeug.exceptions.NotFound` exception or
     #: something similar.
     routing_exception = None
 
-    # switched by the request context until 1.0 to opt in deprecated
-    # module functionality
-    _is_old_module = False
-
     @property
     def max_content_length(self):
-        """Read-only view of the `MAX_CONTENT_LENGTH` config key."""
-        ctx = _request_ctx_stack.top
-        if ctx is not None:
-            return ctx.app.config['MAX_CONTENT_LENGTH']
+        """Read-only view of the ``MAX_CONTENT_LENGTH`` config key."""
+        if current_app:
+            return current_app.config['MAX_CONTENT_LENGTH']
 
     @property
     def endpoint(self):
         """The endpoint that matched the request.  This in combination with
         :attr:`view_args` can be used to reconstruct the same or a
         modified URL.  If an exception happened when matching, this will
-        be `None`.
+        be ``None``.
         """
         if self.url_rule is not None:
             return self.url_rule.endpoint
-
-    @property
-    def module(self):
-        """The name of the current module if the request was dispatched
-        to an actual module.  This is deprecated functionality, use blueprints
-        instead.
-        """
-        from warnings import warn
-        warn(DeprecationWarning('modules were deprecated in favor of '
-                                'blueprints.  Use request.blueprint '
-                                'instead.'), stacklevel=2)
-        if self._is_old_module:
-            return self.blueprint
 
     @property
     def blueprint(self):
@@ -88,53 +155,22 @@ class Request(RequestBase):
         if self.url_rule and '.' in self.url_rule.endpoint:
             return self.url_rule.endpoint.rsplit('.', 1)[0]
 
-    @cached_property
-    def json(self):
-        """If the mimetype is `application/json` this will contain the
-        parsed JSON data.  Otherwise this will be `None`.
-
-        This requires Python 2.6 or an installed version of simplejson.
-        """
-        if self.mimetype == 'application/json':
-            request_charset = self.mimetype_params.get('charset')
-            try:
-                if request_charset is not None:
-                    return json.loads(self.data, encoding=request_charset)
-                return json.loads(self.data)
-            except ValueError, e:
-                return self.on_json_loading_failed(e)
-
-    def on_json_loading_failed(self, e):
-        """Called if decoding of the JSON data failed.  The return value of
-        this method is used by :attr:`json` when an error occurred.  The default
-        implementation raises a :class:`JSONBadRequest`, which is a subclass of
-        :class:`~werkzeug.exceptions.BadRequest` which sets the
-        ``Content-Type`` to ``application/json`` and provides a JSON-formatted
-        error description::
-
-            {"description": "The browser (or proxy) sent a request that \
-                             this server could not understand."}
-
-        .. versionchanged:: 0.9
-           Return a :class:`JSONBadRequest` instead of a
-           :class:`~werkzeug.exceptions.BadRequest` by default.
-
-        .. versionadded:: 0.8
-        """
-        raise JSONBadRequest()
-
     def _load_form_data(self):
         RequestBase._load_form_data(self)
 
-        # in debug mode we're replacing the files multidict with an ad-hoc
+        # In debug mode we're replacing the files multidict with an ad-hoc
         # subclass that raises a different error for key errors.
-        ctx = _request_ctx_stack.top
-        if ctx is not None and ctx.app.debug and \
-           self.mimetype != 'multipart/form-data' and not self.files:
+        if (
+            current_app
+            and current_app.debug
+            and self.mimetype != 'multipart/form-data'
+            and not self.files
+        ):
+            from .debughelpers import attach_enctype_error_multidict
             attach_enctype_error_multidict(self)
 
 
-class Response(ResponseBase):
+class Response(ResponseBase, JSONMixin):
     """The response object that is used by default in Flask.  Works like the
     response object from Werkzeug but is set to have an HTML mimetype by
     default.  Quite often you don't have to create this object yourself because
@@ -142,5 +178,13 @@ class Response(ResponseBase):
 
     If you want to replace the response object used you can subclass this and
     set :attr:`~flask.Flask.response_class` to your subclass.
+
+    .. versionchanged:: 1.0
+        JSON support is added to the response, like the request. This is useful
+        when testing to get the test client response data as JSON.
     """
+
     default_mimetype = 'text/html'
+
+    def _get_data_for_json(self, cache):
+        return self.get_data()

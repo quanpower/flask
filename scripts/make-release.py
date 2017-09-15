@@ -7,9 +7,10 @@
     Helper script that performs a release.  Does pretty much everything
     automatically for us.
 
-    :copyright: (c) 2011 by Armin Ronacher.
+    :copyright: (c) 2015 by Armin Ronacher.
     :license: BSD, see LICENSE for more details.
 """
+from __future__ import print_function
 import sys
 import os
 import re
@@ -26,7 +27,6 @@ def parse_changelog():
             match = re.search('^Version\s+(.*)', line.strip())
             if match is None:
                 continue
-            length = len(match.group(1))
             version = match.group(1).strip()
             if lineiter.next().count('-') != len(match.group(0)):
                 continue
@@ -60,6 +60,7 @@ def parse_date(string):
 
 def set_filename_version(filename, version_number, pattern):
     changed = []
+
     def inject_version(match):
         before, old, after = match.groups()
         changed.append(True)
@@ -80,22 +81,17 @@ def set_init_version(version):
     set_filename_version('flask/__init__.py', version, '__version__')
 
 
-def set_setup_version(version):
-    info('Setting setup.py version to %s', version)
-    set_filename_version('setup.py', version, 'version')
-
-
 def build_and_upload():
-    Popen([sys.executable, 'setup.py', 'release', 'sdist', 'upload']).wait()
+    Popen([sys.executable, 'setup.py', 'release', 'sdist', 'bdist_wheel', 'upload']).wait()
 
 
 def fail(message, *args):
-    print >> sys.stderr, 'Error:', message % args
+    print('Error:', message % args, file=sys.stderr)
     sys.exit(1)
 
 
 def info(message, *args):
-    print >> sys.stderr, message % args
+    print(message % args, file=sys.stderr)
 
 
 def get_git_tags():
@@ -133,18 +129,17 @@ def main():
     if version in tags:
         fail('Version "%s" is already tagged', version)
     if release_date.date() != date.today():
-        fail('Release date is not today (%s != %s)')
+        fail('Release date is not today (%s != %s)',
+             release_date.date(), date.today())
 
     if not git_is_clean():
         fail('You have uncommitted changes in git')
 
     set_init_version(version)
-    set_setup_version(version)
     make_git_commit('Bump version number to %s', version)
     make_git_tag(version)
     build_and_upload()
     set_init_version(dev_version)
-    set_setup_version(dev_version)
 
 
 if __name__ == '__main__':

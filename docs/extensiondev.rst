@@ -27,28 +27,22 @@ The name of the actual extension (the human readable name) however would
 be something like "Flask-SimpleXML".  Make sure to include the name
 "Flask" somewhere in that name and that you check the capitalization.
 This is how users can then register dependencies to your extension in
-their `setup.py` files.
+their :file:`setup.py` files.
 
-Flask sets up a redirect package called :data:`flask.ext` where users
-should import the extensions from.  If you for instance have a package
-called ``flask_something`` users would import it as
-``flask.ext.something``.  This is done to transition from the old
-namespace packages.  See :ref:`ext-import-transition` for more details.
-
-But how do extensions look like themselves?  An extension has to ensure
+But what do extensions look like themselves?  An extension has to ensure
 that it works with multiple Flask application instances at once.  This is
 a requirement because many people will use patterns like the
 :ref:`app-factories` pattern to create their application as needed to aid
 unittests and to support multiple configurations.  Because of that it is
 crucial that your application supports that kind of behavior.
 
-Most importantly the extension must be shipped with a `setup.py` file and
+Most importantly the extension must be shipped with a :file:`setup.py` file and
 registered on PyPI.  Also the development checkout link should work so
 that people can easily install the development version into their
 virtualenv without having to download the library by hand.
 
 Flask extensions must be licensed under a BSD, MIT or more liberal license
-to be able to be enlisted in the Flask Extension Registry.  Keep in mind
+in order to be listed in the Flask Extension Registry.  Keep in mind
 that the Flask Extension Registry is a moderated place and libraries will
 be reviewed upfront if they behave as required.
 
@@ -70,7 +64,7 @@ Here's the contents of the most important files:
 setup.py
 ````````
 
-The next file that is absolutely required is the `setup.py` file which is
+The next file that is absolutely required is the :file:`setup.py` file which is
 used to install your Flask extension.  The following contents are
 something you can work with::
 
@@ -154,10 +148,10 @@ What to use depends on what you have in mind.  For the SQLite 3 extension
 we will use the class-based approach because it will provide users with an
 object that handles opening and closing database connections.
 
-What's important about classes is that they encourage to be shared around
-on module level.  In that case, the object itself must not under any
+When designing your classes, it's important to make them easily reusable
+at the module level. This means the object itself must not under any
 circumstances store any application specific state and must be shareable
-between different application.
+between different applications.
 
 The Extension Code
 ------------------
@@ -259,7 +253,7 @@ way::
         cur = db.connection.cursor()
         cur.execute(...)
 
-At the end of the `with` block the teardown handles will be executed
+At the end of the ``with`` block the teardown handles will be executed
 automatically.
 
 Additionally, the ``init_app`` method is used to support the factory pattern
@@ -334,10 +328,10 @@ development.  If you want to learn more, it's a very good idea to check
 out existing extensions on the `Flask Extension Registry`_.  If you feel
 lost there is still the `mailinglist`_ and the `IRC channel`_ to get some
 ideas for nice looking APIs.  Especially if you do something nobody before
-you did, it might be a very good idea to get some more input.  This not
-only to get an idea about what people might want to have from an
-extension, but also to avoid having multiple developers working on pretty
-much the same side by side.
+you did, it might be a very good idea to get some more input.  This not only
+generates useful feedback on what people might want from an extension, but
+also avoids having multiple developers working in isolation on pretty much the
+same problem.
 
 Remember: good API design is hard, so introduce your project on the
 mailinglist, and let other developers give you a helping hand with
@@ -360,27 +354,26 @@ extension to be approved you have to follow these guidelines:
     find a new maintainer including full source hosting transition and PyPI
     access.  If no maintainer is available, give access to the Flask core team.
 1.  An approved Flask extension must provide exactly one package or module
-    named ``flask_extensionname``.  They might also reside inside a
-    ``flaskext`` namespace packages though this is discouraged now.
+    named ``flask_extensionname``.
 2.  It must ship a testing suite that can either be invoked with ``make test``
     or ``python setup.py test``.  For test suites invoked with ``make
     test`` the extension has to ensure that all dependencies for the test
     are installed automatically.  If tests are invoked with ``python setup.py
-    test``, test dependencies can be specified in the `setup.py` file.  The
+    test``, test dependencies can be specified in the :file:`setup.py` file.  The
     test suite also has to be part of the distribution.
 3.  APIs of approved extensions will be checked for the following
     characteristics:
 
-    -   an approved extension has to support multiple applications
-        running in the same Python process.
-    -   it must be possible to use the factory pattern for creating
-        applications.
+   -   an approved extension has to support multiple applications
+       running in the same Python process.
+   -   it must be possible to use the factory pattern for creating
+       applications.
 
 4.  The license must be BSD/MIT/WTFPL licensed.
 5.  The naming scheme for official extensions is *Flask-ExtensionName* or
     *ExtensionName-Flask*.
 6.  Approved extensions must define all their dependencies in the
-    `setup.py` file unless a dependency cannot be met because it is not
+    :file:`setup.py` file unless a dependency cannot be met because it is not
     available on PyPI.
 7.  The extension must have documentation that uses one of the two Flask
     themes for Sphinx documentation.
@@ -388,33 +381,30 @@ extension to be approved you have to follow these guidelines:
     link to the documentation, website (if there is one) and there
     must be a link to automatically install the development version
     (``PackageName==dev``).
-9.  The ``zip_safe`` flag in the setup script must be set to ``False``,
-    even if the extension would be safe for zipping.
-10. An extension currently has to support Python 2.5, 2.6 as well as
-    Python 2.7
+9. The ``zip_safe`` flag in the setup script must be set to ``False``,
+   even if the extension would be safe for zipping.
+10. An extension currently has to support Python 2.7, Python 3.3 and higher.
 
 
-.. _ext-import-transition:
 
 Extension Import Transition
 ---------------------------
 
-For a while we recommended using namespace packages for Flask extensions.
-This turned out to be problematic in practice because many different
-competing namespace package systems exist and pip would automatically
-switch between different systems and this caused a lot of problems for
-users.
+In early versions of Flask we recommended using namespace packages for Flask
+extensions, of the form ``flaskext.foo``. This turned out to be problematic in
+practice because it meant that multiple ``flaskext`` packages coexist.
+Consequently we have recommended to name extensions ``flask_foo`` over
+``flaskext.foo`` for a long time.
 
-Instead we now recommend naming packages ``flask_foo`` instead of the now
-deprecated ``flaskext.foo``.  Flask 0.8 introduces a redirect import
-system that lets uses import from ``flask.ext.foo`` and it will try
-``flask_foo`` first and if that fails ``flaskext.foo``.
+Flask 0.8 introduced a redirect import system as a compatibility aid for app
+developers: Importing ``flask.ext.foo`` would try ``flask_foo`` and
+``flaskext.foo`` in that order.
 
-Flask extensions should urge users to import from ``flask.ext.foo``
-instead of ``flask_foo`` or ``flaskext_foo`` so that extensions can
-transition to the new package name without affecting users.
+As of Flask 0.11, most Flask extensions have transitioned to the new naming
+schema. The ``flask.ext.foo`` compatibility alias is still in Flask 0.11 but is
+now deprecated -- you should use ``flask_foo``.
 
 
-.. _OAuth extension: http://packages.python.org/Flask-OAuth/
+.. _OAuth extension: https://pythonhosted.org/Flask-OAuth/
 .. _mailinglist: http://flask.pocoo.org/mailinglist/
 .. _IRC channel: http://flask.pocoo.org/community/irc/

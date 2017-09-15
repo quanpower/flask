@@ -1,69 +1,80 @@
 .. _tutorial-dbinit:
 
-Step 3: Creating The Database
+Step 5: Creating The Database
 =============================
 
-Flaskr is a database powered application as outlined earlier, and more
-precisely, an application powered by a relational database system.  Such
-systems need a schema that tells them how to store that information. So
-before starting the server for the first time it's important to create
+As outlined earlier, Flaskr is a database powered application, and more
+precisely, it is an application powered by a relational database system.  Such
+systems need a schema that tells them how to store that information.
+Before starting the server for the first time, it's important to create
 that schema.
 
-Such a schema can be created by piping the `schema.sql` file into the
-`sqlite3` command as follows::
+Such a schema could be created by piping the ``schema.sql`` file into the
+``sqlite3`` command as follows::
 
     sqlite3 /tmp/flaskr.db < schema.sql
 
-The downside of this is that it requires the sqlite3 command to be
-installed which is not necessarily the case on every system.  Also one has
-to provide the path to the database there which leaves some place for
-errors.  It's a good idea to add a function that initializes the database
-for you to the application.
+However, the downside of this is that it requires the ``sqlite3`` command
+to be installed, which is not necessarily the case on every system. This
+also requires that you provide the path to the database, which can introduce
+errors.
 
-If you want to do that, you first have to import the
-:func:`contextlib.closing` function from the contextlib package.  If you
-want to use Python 2.5 it's also necessary to enable the `with` statement
-first (`__future__` imports must be the very first import). Accordingly,
-add the following lines to your existing imports in `flaskr.py`::
+Instead of the ``sqlite3`` command above, it's a good idea to add a function
+to our application that initializes the database for you. To do this, you
+can create a function and hook it into a :command:`flask` command that
+initializes the database.
 
-    from __future__ import with_statement
-    from contextlib import closing
-
-Next we can create a function called `init_db` that initializes the
-database.  For this we can use the `connect_db` function we defined
-earlier.  Just add that function below the `connect_db` function in
-`flaskr.py`::
+Take a look at the code segment below. A good place to add this function,
+and command, is just below the ``connect_db`` function in :file:`flaskr.py`::
 
     def init_db():
-        with closing(connect_db()) as db:
-            with app.open_resource('schema.sql') as f:
-                db.cursor().executescript(f.read())
-            db.commit()
+        db = get_db()
 
-The :func:`~contextlib.closing` helper function allows us to keep a
-connection open for the duration of the `with` block.  The
-:func:`~flask.Flask.open_resource` method of the application object
-supports that functionality out of the box, so it can be used in the
-`with` block directly.  This function opens a file from the resource
-location (your `flaskr` folder) and allows you to read from it.  We are
-using this here to execute a script on the database connection.
+        with app.open_resource('schema.sql', mode='r') as f:
+            db.cursor().executescript(f.read())
 
-When we connect to a database we get a connection object (here called
-`db`) that can give us a cursor.  On that cursor there is a method to
-execute a complete script.  Finally we only have to commit the changes.
-SQLite 3 and other transactional databases will not commit unless you
-explicitly tell it to.
+        db.commit()
 
-Now it is possible to create a database by starting up a Python shell and
-importing and calling that function::
 
->>> from flaskr import init_db
->>> init_db()
+    @app.cli.command('initdb')
+    def initdb_command():
+        """Initializes the database."""
+
+        init_db()
+        print('Initialized the database.')
+
+The ``app.cli.command()`` decorator registers a new command with the
+:command:`flask` script.  When the command executes, Flask will automatically
+create an application context which is bound to the right application.
+Within the function, you can then access :attr:`flask.g` and other things as
+you might expect.  When the script ends, the application context tears down
+and the database connection is released.
+
+You will want to keep an actual function around that initializes the database,
+though, so that we can easily create databases in unit tests later on.  (For
+more information see :ref:`testing`.)
+
+The :func:`~flask.Flask.open_resource` method of the application object
+is a convenient helper function that will open a resource that the
+application provides.  This function opens a file from the resource
+location (the :file:`flaskr/flaskr` folder) and allows you to read from it.
+It is used in this example to execute a script on the database connection.
+
+The connection object provided by SQLite can give you a cursor object.
+On that cursor, there is a method to execute a complete script.  Finally, you
+only have to commit the changes.  SQLite3 and other transactional
+databases will not commit unless you explicitly tell it to.
+
+Now, in a terminal, from the application root directory :file:`flaskr/` it is
+possible to create a database with the :command:`flask` script::
+
+    flask initdb
+    Initialized the database.
 
 .. admonition:: Troubleshooting
 
-   If you get an exception later that a table cannot be found check that
-   you did call the `init_db` function and that your table names are
-   correct (singular vs. plural for example).
+   If you get an exception later on stating that a table cannot be found, check
+   that you did execute the ``initdb`` command and that your table names are
+   correct (singular vs. plural, for example).
 
-Continue with :ref:`tutorial-dbcon`
+Continue with :ref:`tutorial-views`
